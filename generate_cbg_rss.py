@@ -116,7 +116,7 @@ def build_rss(items, title="CBG-MEB Nieuws", link=BASE_NL, desc="Ongeautoriseerd
         out.append(f"<title>{it_title}</title>")
         out.append(f"<link>{it_link}</link>")
         out.append(f"<guid isPermaLink=\"false\">{guid}</guid>")
-        out.append(f"<pubDate>{it_date}</pubDate}")
+        out.append(f"<pubDate>{it['pubDate'].strftime('%a, %d %b %Y %H:%M:%S GMT')}</pubDate>")
         out.append("</item>")
     out.append("</channel></rss>")
     return "\n".join(out)
