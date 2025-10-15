@@ -1,6 +1,8 @@
 name: Build RSS (CBG)
 
 on:
+permissions:
+  contents: write
   workflow_dispatch: {}
   schedule:
     - cron: "0 */4 * * *"  # elke 4 uur
