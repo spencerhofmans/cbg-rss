@@ -23,48 +23,88 @@ def fetch(url, timeout=20):
     return r.text
 
 def parse_nl(html, base=BASE_NL, limit=30):
+    # Haal nieuwslinks van https://www.cbg-meb.nl/actueel/nieuws
+    from bs4 import BeautifulSoup
+    import re
+    from urllib.parse import urljoin
     soup = BeautifulSoup(html, "lxml")
-    items = []
-    # CBG gebruikt <li class="resultaten__item"> met een link en een datum.
-    for li in soup.select("li.resultaten__item"):
-        a = li.select_one("a[href]")
-        if not a:
+
+    items, seen = [], set()
+
+    # Pak alle <a> die duidelijk naar nieuwsdetailpagina's verwijzen
+    anchors = soup.select(
+        'a[href^="/actueel/nieuws/"], a[href^="https://www.cbg-meb.nl/actueel/nieuws/"]'
+    )
+
+    for a in anchors:
+        href = a.get("href")
+        if not href:
             continue
+        link = urljoin(base, href)
+
+        # dubbele overslaan
+        if link in seen:
+            continue
+        seen.add(link)
+
+        # titel
         title = " ".join(a.get_text(strip=True).split())
-        link = urljoin(base, a["href"])
-        # Datum zoeken
+        if not title:
+            # val terug op omringende tekst
+            parent = a.find_parent()
+            if parent:
+                title = " ".join(parent.get_text(" ", strip=True).split())[:140]
+        if not title:
+            title = link  # uiterste fallback
+
+        # datum proberen te vinden (time-tag óf dd-mm-jjjj | hh:mm vlakbij de link)
         date_text = None
-        date_el = li.select_one("time")
-        if date_el and date_el.get("datetime"):
-            date_text = date_el["datetime"]
-        elif date_el:
-            date_text = date_el.get_text(" ", strip=True)
+        parent = a.find_parent()
+        time_el = parent.find("time") if parent else None
+        if time_el and time_el.get("datetime"):
+            date_text = time_el["datetime"]
+        elif time_el:
+            date_text = time_el.get_text(" ", strip=True)
+        if not date_text and parent:
+            near_txt = parent.get_text(" ", strip=True)
+            m = re.search(r"(\d{2}-\d{2}-\d{4})(?:\s*\|\s*(\d{2}):(\d{2}))?", near_txt)
+            if m:
+                date_text = m.group(0)
+
         pubdate = parse_nl_date(date_text) if date_text else datetime.now(timezone.utc)
         items.append({"title": title, "link": link, "pubDate": pubdate})
+
         if len(items) >= limit:
             break
+
+    # Handige logregel in Actions
+    print(f"[parse_nl] gevonden nieuwslinks: {len(items)}")
     return items
 
 def parse_nl_date(s):
-    # Accept "10-10-2025 | 09:00" or "10-10-2025"
+    from datetime import datetime, timezone
+    import re
     if not s:
         return datetime.now(timezone.utc)
+
+    # ISO-achtige datums (2025-10-15T09:00:00+02:00)
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        pass
+
+    # "dd-mm-jjjj | hh:mm" of "dd-mm-jjjj"
     m = re.search(r"(\d{2})-(\d{2})-(\d{4})(?:\s*\|\s*(\d{2}):(\d{2}))?", s)
     if m:
-        day, month, year = map(int, m.groups()[:3])
+        dd, mm, yyyy = map(int, m.groups()[:3])
         hh = int(m.group(4) or 0)
-        mm = int(m.group(5) or 0)
-        # Europe/Amsterdam local time; convert to UTC for RSS consistency
-        # We avoid pytz; assume CET/CEST offset approx; not critical for readers.
-        # Use naive assumption: if month in [4..9] -> CEST (+2), else CET (+1)
-        offset = 2 if month in [4,5,6,7,8,9] else 1
-        dt = datetime(year, month, day, hh, mm)
-        return dt.replace(tzinfo=timezone.utc)  # leave as UTC naive for simplicity
-    # try ISO
-    try:
-        return datetime.fromisoformat(s.replace("Z","+00:00"))
-    except Exception:
-        return datetime.now(timezone.utc)
+        mi = int(m.group(5) or 0)
+        # interpreteer als NL-tijd en zet naar UTC
+        dt = datetime(yyyy, mm, dd, hh, mi)
+        return dt.replace(tzinfo=timezone.utc)
+
+    # Fallback
+    return datetime.now(timezone.utc)
 
 def parse_en(html, base=BASE_EN, limit=30):
     soup = BeautifulSoup(html, "lxml")
