@@ -25,26 +25,20 @@ def fetch(url, timeout=20):
 def parse_nl(html, base=BASE_NL, limit=30):
     soup = BeautifulSoup(html, "lxml")
     items = []
-    # Items are usually listed under articles or list entries; detect links in the news listing
-    for art in soup.select("main article, .news-overview li, .resultaten li, .indexed-items li"):
-        a = art.select_one("a[href]")
-        if not a: 
+    # CBG gebruikt <li class="resultaten__item"> met een link en een datum.
+    for li in soup.select("li.resultaten__item"):
+        a = li.select_one("a[href]")
+        if not a:
             continue
         title = " ".join(a.get_text(strip=True).split())
         link = urljoin(base, a["href"])
-        # Date appears near the title like "10-10-2025 | 09:00" or within time elements
+        # Datum zoeken
         date_text = None
-        # try time tags
-        time_el = art.find("time")
-        if time_el and time_el.get("datetime"):
-            date_text = time_el["datetime"]
-        elif time_el:
-            date_text = time_el.get_text(" ", strip=True)
-        # fallback: search for pattern dd-mm-yyyy
-        if not date_text:
-            m = re.search(r"(\d{2}-\d{2}-\d{4})(?:\s*\|\s*\d{2}:\d{2})?", art.get_text(" ", strip=True))
-            if m:
-                date_text = m.group(0)
+        date_el = li.select_one("time")
+        if date_el and date_el.get("datetime"):
+            date_text = date_el["datetime"]
+        elif date_el:
+            date_text = date_el.get_text(" ", strip=True)
         pubdate = parse_nl_date(date_text) if date_text else datetime.now(timezone.utc)
         items.append({"title": title, "link": link, "pubDate": pubdate})
         if len(items) >= limit:
